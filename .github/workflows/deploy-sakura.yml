@@ -1,0 +1,66 @@
+name: Deploy to Sakura
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: production-sakura
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate and build
+        run: npm run check
+
+      - name: Configure SSH
+        env:
+          SAKURA_SSH_KEY: ${{ secrets.SAKURA_SSH_KEY }}
+          SAKURA_KNOWN_HOSTS: ${{ secrets.SAKURA_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SAKURA_SSH_KEY" > ~/.ssh/oruwa_deploy
+          chmod 600 ~/.ssh/oruwa_deploy
+          printf '%s\n' "$SAKURA_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Back up current site
+        env:
+          SAKURA_HOST: ${{ secrets.SAKURA_HOST }}
+          SAKURA_USER: ${{ secrets.SAKURA_USER }}
+        run: |
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          ssh -i ~/.ssh/oruwa_deploy "$SAKURA_USER@$SAKURA_HOST" \
+            "if [ -d ~/www/oruwa ] && [ -n \"\$(find ~/www/oruwa -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)\" ]; then cp -a ~/www/oruwa ~/www/oruwa-backup-$stamp; fi"
+
+      - name: Deploy static site
+        env:
+          SAKURA_HOST: ${{ secrets.SAKURA_HOST }}
+          SAKURA_USER: ${{ secrets.SAKURA_USER }}
+        run: |
+          ssh -i ~/.ssh/oruwa_deploy "$SAKURA_USER@$SAKURA_HOST" "mkdir -p ~/www/oruwa"
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/oruwa_deploy" \
+            out/ "$SAKURA_USER@$SAKURA_HOST:~/www/oruwa/"
+
+      - name: Verify public site
+        run: |
+          curl --fail --silent --show-error --location --retry 3 https://oruwa.jp/ > /dev/null
+          curl --fail --silent --show-error --location --retry 3 https://oruwa.jp/products/ > /dev/null
