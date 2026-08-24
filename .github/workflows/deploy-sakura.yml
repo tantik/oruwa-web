@@ -47,8 +47,13 @@ jobs:
           SAKURA_USER: ${{ secrets.SAKURA_USER }}
         run: |
           stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-          ssh -i ~/.ssh/oruwa_deploy "$SAKURA_USER@$SAKURA_HOST" \
-            "if [ -d ~/www/oruwa ] && [ -n \"\$(find ~/www/oruwa -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)\" ]; then cp -a ~/www/oruwa ~/www/oruwa-backup-$stamp; fi"
+          ssh -i ~/.ssh/oruwa_deploy "$SAKURA_USER@$SAKURA_HOST" sh -s -- "$stamp" <<'REMOTE'
+          stamp="$1"
+          target="$HOME/www/oruwa"
+          if [ -d "$target" ] && [ -n "$(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" ]; then
+            cp -a "$target" "$HOME/www/oruwa-backup-$stamp"
+          fi
+          REMOTE
 
       - name: Deploy static site
         env:
@@ -62,5 +67,5 @@ jobs:
 
       - name: Verify public site
         run: |
-          curl --fail --silent --show-error --location --retry 3 https://oruwa.jp/ > /dev/null
-          curl --fail --silent --show-error --location --retry 3 https://oruwa.jp/products/ > /dev/null
+          curl --fail --silent --show-error --location --retry 3 http://oruwa.jp/ > /dev/null
+          curl --fail --silent --show-error --location --retry 3 http://oruwa.jp/products/ > /dev/null
